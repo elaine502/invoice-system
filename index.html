@@ -1,0 +1,1016 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>典活動工程有限公司 - 請款與發票收據管理系統</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Tesseract.js (OCR) -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <!-- jsQR (QR Code Reader) -->
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <!-- SheetJS (Excel Export) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- html2pdf.js (PDF Export) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        morandi: {
+                            50: '#f6f5f7',
+                            100: '#e8e5ec',
+                            200: '#d5cfdd',
+                            300: '#b8adb8',
+                            400: '#9b8d9e',
+                            500: '#817185',
+                            600: '#68586c',
+                            700: '#524455',
+                            800: '#3c313f',
+                            900: '#271f29',
+                        },
+                        accent: {
+                            green: '#7a9a8b',
+                            gold: '#c4a678',
+                            rose: '#b87d7b',
+                            blue: '#788ca0'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(213, 207, 221, 0.5);
+        }
+        @media print {
+            .no-print { display: none !important; }
+            .print-only { display: block !important; }
+            body { background: white !important; font-size: 12pt; }
+            .page-break { page-break-before: always; }
+        }
+        .print-only { display: none; }
+        
+        /* PDF 整理格式 */
+        .pdf-page {
+            width: 210mm;
+            min-height: 297mm;
+            padding: 15mm;
+            margin: 0 auto;
+            background: white;
+            box-sizing: border-box;
+        }
+        .pdf-invoice-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+        }
+        .pdf-invoice-card {
+            border: 1px dashed #9b8d9e;
+            padding: 10px;
+            border-radius: 8px;
+            page-break-inside: avoid;
+            background: #fafafa;
+        }
+    </style>
+</head>
+<body class="bg-morandi-50 text-slate-700 min-h-screen font-sans pb-12">
+
+    <!-- 頂部導航 -->
+    <header class="bg-morandi-700 text-white shadow-lg sticky top-0 z-30">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
+            <div class="flex items-center space-x-3">
+                <i class="fa-solid fa-file-invoice-dollar text-xl text-morandi-200"></i>
+                <h1 class="font-bold text-lg tracking-wide">典活動工程有限公司 <span class="text-xs font-normal bg-morandi-600 px-2 py-0.5 rounded-full ml-1">請款與單據管理</span></h1>
+            </div>
+            <div class="flex items-center space-x-2">
+                <button onclick="switchView('scan')" id="btn-tab-scan" class="px-3 py-1.5 rounded-lg text-sm bg-morandi-500 font-medium transition flex items-center gap-1.5">
+                    <i class="fa-solid fa-camera"></i> <span class="hidden sm:inline">掃描/Key-in</span>
+                </button>
+                <button onclick="switchView('list')" id="btn-tab-list" class="px-3 py-1.5 rounded-lg text-sm hover:bg-morandi-600 font-medium transition flex items-center gap-1.5">
+                    <i class="fa-solid fa-list-check"></i> <span class="hidden sm:inline">單據明細</span>
+                </button>
+                <button onclick="switchView('report')" id="btn-tab-report" class="px-3 py-1.5 rounded-lg text-sm hover:bg-morandi-600 font-medium transition flex items-center gap-1.5">
+                    <i class="fa-solid fa-chart-pie"></i> <span class="hidden sm:inline">月份請款彙總</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- 主要內容區 -->
+    <main class="max-w-7xl mx-auto px-4 mt-6">
+
+        <!-- 視角 1: 掃描與手動輸入 (Scan & Manual Entry) -->
+        <section id="view-scan" class="space-y-6">
+            
+            <!-- 上傳/掃描卡片 -->
+            <div class="glass-panel rounded-2xl p-6 shadow-sm border border-morandi-200">
+                <h2 class="text-lg font-bold text-morandi-800 mb-4 flex items-center gap-2">
+                    <i class="fa-solid fa-cloud-arrow-up text-morandi-500"></i> 拍單據 / 條碼掃描 / 手動填寫
+                </h2>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- 相機與圖檔載入區 -->
+                    <div class="flex flex-col items-center justify-center border-2 border-dashed border-morandi-300 rounded-xl p-6 bg-white/50 hover:bg-white transition cursor-pointer relative" id="drop-zone">
+                        <input type="file" id="file-input" accept="image/*" capture="environment" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" onchange="handleFileUpload(event)">
+                        
+                        <div id="upload-prompt" class="text-center space-y-3">
+                            <div class="w-16 h-16 bg-morandi-100 rounded-full flex items-center justify-center mx-auto text-morandi-600">
+                                <i class="fa-solid fa-camera-retro text-2xl"></i>
+                            </div>
+                            <div>
+                                <p class="font-medium text-morandi-800">點擊拍照或上傳發票/收據照片</p>
+                                <p class="text-xs text-morandi-400 mt-1">支援 QR Code 自動解析與 OCR 文字辨識</p>
+                            </div>
+                            <div class="flex gap-2 justify-center pt-2">
+                                <span class="text-xs bg-morandi-100 text-morandi-700 px-2.5 py-1 rounded-full"><i class="fa-solid fa-qrcode mr-1"></i>電子發票 QR</span>
+                                <span class="text-xs bg-morandi-100 text-morandi-700 px-2.5 py-1 rounded-full"><i class="fa-solid fa-receipt mr-1"></i>一般發票/收據</span>
+                            </div>
+                        </div>
+
+                        <!-- 預覽區域 -->
+                        <div id="preview-container" class="hidden w-full space-y-3">
+                            <img id="image-preview" class="max-h-64 mx-auto rounded-lg shadow object-contain border border-morandi-200" src="" alt="發票預覽">
+                            <div class="flex justify-between items-center text-xs text-morandi-500 px-2">
+                                <span id="ocr-status" class="flex items-center gap-1"><i class="fa-solid fa-spinner fa-spin"></i> 辨識中...</span>
+                                <button type="button" onclick="clearImage()" class="text-accent-rose hover:underline z-20">重新上傳</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 手動 / 自動填寫表單 -->
+                    <form id="invoice-form" onsubmit="saveInvoice(event)" class="space-y-4">
+                        <input type="hidden" id="edit-id" value="">
+
+                        <!-- 單據類型與專案/社區選擇 -->
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold text-morandi-700 mb-1">單據類型</label>
+                                <select id="docType" class="w-full bg-white border border-morandi-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-morandi-500">
+                                    <option value="發票">電子/傳統發票</option>
+                                    <option value="收據">免用統一發票收據</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-morandi-700 mb-1">專案 / 社區分類</label>
+                                <input type="text" id="projectTag" list="project-suggestions" placeholder="例：莫內社區 / 真武殿活動" class="w-full bg-white border border-morandi-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-morandi-500" required>
+                                <datalist id="project-suggestions">
+                                    <option value="雙連幼兒園畢業典禮">
+                                    <option value="真武殿廟會狂響">
+                                    <option value="莫內社區中元普渡">
+                                    <option value="行政日常庶務">
+                                </datalist>
+                            </div>
+                        </div>
+
+                        <!-- 日期與單據號碼 -->
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold text-morandi-700 mb-1">單據日期</label>
+                                <input type="date" id="invDate" class="w-full bg-white border border-morandi-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-morandi-500" required>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-morandi-700 mb-1">發票/收據號碼</label>
+                                <input type="text" id="invNumber" placeholder="例：AB12345678" class="w-full bg-white border border-morandi-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-morandi-500" required>
+                            </div>
+                        </div>
+
+                        <!-- 商家名稱與金額 -->
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold text-morandi-700 mb-1">商家名稱</label>
+                                <input type="text" id="sellerName" placeholder="開立單位/賣方" class="w-full bg-white border border-morandi-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-morandi-500" required>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-morandi-700 mb-1">金額 (NT$)</label>
+                                <input type="number" id="amount" placeholder="0" min="0" class="w-full bg-white border border-morandi-300 rounded-lg px-3 py-2 text-sm font-bold text-morandi-800 focus:outline-none focus:border-morandi-500" required>
+                            </div>
+                        </div>
+
+                        <!-- 費用類別與付款方式 -->
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold text-morandi-700 mb-1">費用分類</label>
+                                <select id="category" class="w-full bg-white border border-morandi-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-morandi-500" required>
+                                    <option value="汽車出勤">汽車出勤</option>
+                                    <option value="現金付款(活動)">現金付款(活動)</option>
+                                    <option value="行政庶務-現金付款">行政庶務-現金付款</option>
+                                    <option value="現金付款(維修)">現金付款(維修)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-morandi-700 mb-1">付款狀態</label>
+                                <select id="paymentStatus" onchange="toggleNoteField()" class="w-full bg-white border border-morandi-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-morandi-500" required>
+                                    <option value="老闆已代墊">老闆已代墊</option>
+                                    <option value="月結">月結</option>
+                                    <option value="已付訂金">已付訂金(另作備註)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- 項目內容 & 快捷按鈕 -->
+                        <div>
+                            <div class="flex justify-between items-center mb-1">
+                                <label class="block text-xs font-semibold text-morandi-700">項目內容 / 備註</label>
+                                <div class="space-x-1 text-xs">
+                                    <span class="text-morandi-400">常用詞：</span>
+                                    <button type="button" onclick="appendWord('加油費')" class="bg-morandi-100 hover:bg-morandi-200 text-morandi-700 px-1.5 py-0.5 rounded">加油</button>
+                                    <button type="button" onclick="appendWord('停車費')" class="bg-morandi-100 hover:bg-morandi-200 text-morandi-700 px-1.5 py-0.5 rounded">停車</button>
+                                    <button type="button" onclick="appendWord('現場餐飲')" class="bg-morandi-100 hover:bg-morandi-200 text-morandi-700 px-1.5 py-0.5 rounded">餐飲</button>
+                                    <button type="button" onclick="appendWord('五金雜項')" class="bg-morandi-100 hover:bg-morandi-200 text-morandi-700 px-1.5 py-0.5 rounded">五金</button>
+                                </div>
+                            </div>
+                            <input type="text" id="itemDetails" placeholder="例：95無鉛汽油 / 舞台租借訂金" class="w-full bg-white border border-morandi-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-morandi-500" required>
+                        </div>
+
+                        <!-- 備註輸入框 (當選擇已付訂金時突顯) -->
+                        <div id="note-container" class="hidden">
+                            <label class="block text-xs font-semibold text-accent-rose mb-1">訂金/付款備註</label>
+                            <input type="text" id="paymentNote" placeholder="註記：已付訂金 $3,000，尾款月結" class="w-full bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 text-sm text-rose-800 focus:outline-none">
+                        </div>
+
+                        <!-- 提交按鈕 -->
+                        <div class="flex gap-2 pt-2">
+                            <button type="submit" id="btn-submit" class="flex-1 bg-morandi-600 hover:bg-morandi-700 text-white font-medium py-2.5 rounded-lg text-sm transition shadow flex items-center justify-center gap-2">
+                                <i class="fa-solid fa-plus"></i> 新增單據
+                            </button>
+                            <button type="button" onclick="resetForm()" class="px-4 bg-morandi-200 hover:bg-morandi-300 text-morandi-700 rounded-lg text-sm transition">
+                                清除
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </section>
+
+        <!-- 視角 2: 明細清單與專案篩選 (List View) -->
+        <section id="view-list" class="hidden space-y-6">
+            
+            <!-- 頂部控制面板與專案篩選 -->
+            <div class="glass-panel p-4 rounded-xl flex flex-col md:flex-row gap-4 justify-between items-center shadow-sm">
+                
+                <!-- 專案/社區與搜尋篩選 -->
+                <div class="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                    <div class="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-morandi-300 text-sm">
+                        <i class="fa-solid fa-filter text-morandi-500"></i>
+                        <span class="text-xs text-morandi-500 font-medium">專案:</span>
+                        <select id="filterProject" onchange="renderInvoices()" class="bg-transparent focus:outline-none text-sm font-semibold text-morandi-800">
+                            <option value="ALL">全部專案 / 社區</option>
+                        </select>
+                    </div>
+
+                    <div class="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-morandi-300 text-sm">
+                        <i class="fa-solid fa-calendar text-morandi-500"></i>
+                        <select id="filterMonth" onchange="renderInvoices()" class="bg-transparent focus:outline-none text-sm font-semibold text-morandi-800">
+                            <option value="ALL">所有月份</option>
+                        </select>
+                    </div>
+
+                    <input type="text" id="searchKeyword" oninput="renderInvoices()" placeholder="搜尋單號、商家、內容..." class="bg-white border border-morandi-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none w-full sm:w-48">
+                </div>
+
+                <!-- 功能匯出按鈕群 -->
+                <div class="flex items-center gap-2 w-full md:w-auto justify-end">
+                    <button onclick="exportToExcel()" class="bg-accent-green hover:opacity-90 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1.5 shadow-sm">
+                        <i class="fa-solid fa-file-excel"></i> 匯出 Excel
+                    </button>
+                    <button onclick="exportInvoicePdf()" class="bg-morandi-600 hover:bg-morandi-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-1.5 shadow-sm">
+                        <i class="fa-solid fa-file-pdf"></i> 請款單+影本 PDF
+                    </button>
+                </div>
+            </div>
+
+            <!-- 四大分類統計小計卡片 -->
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <div class="bg-white p-3 rounded-xl border border-morandi-200 shadow-sm">
+                    <p class="text-xs text-morandi-400 font-medium">汽車出勤</p>
+                    <p id="subtotal-car" class="text-base font-bold text-morandi-800 mt-1">NT$ 0</p>
+                </div>
+                <div class="bg-white p-3 rounded-xl border border-morandi-200 shadow-sm">
+                    <p class="text-xs text-morandi-400 font-medium">現金付款(活動)</p>
+                    <p id="subtotal-event" class="text-base font-bold text-morandi-800 mt-1">NT$ 0</p>
+                </div>
+                <div class="bg-white p-3 rounded-xl border border-morandi-200 shadow-sm">
+                    <p class="text-xs text-morandi-400 font-medium">行政庶務-現金付款</p>
+                    <p id="subtotal-admin" class="text-base font-bold text-morandi-800 mt-1">NT$ 0</p>
+                </div>
+                <div class="bg-white p-3 rounded-xl border border-morandi-200 shadow-sm">
+                    <p class="text-xs text-morandi-400 font-medium">現金付款(維修)</p>
+                    <p id="subtotal-repair" class="text-base font-bold text-morandi-800 mt-1">NT$ 0</p>
+                </div>
+                <div class="bg-morandi-700 text-white p-3 rounded-xl shadow-sm col-span-2 md:col-span-1">
+                    <p class="text-xs text-morandi-200 font-medium">篩選項目總計</p>
+                    <p id="grand-total" class="text-lg font-black text-amber-300 mt-0.5">NT$ 0</p>
+                </div>
+            </div>
+
+            <!-- 單據清單表格 (Desktop) 與 卡片 (Mobile) -->
+            <div class="bg-white rounded-2xl shadow-sm border border-morandi-200 overflow-hidden">
+                <!-- 桌面版表格 -->
+                <div class="hidden md:block overflow-x-auto">
+                    <table class="w-full text-left border-collapse text-sm">
+                        <thead>
+                            <tr class="bg-morandi-100 text-morandi-800 border-b border-morandi-200">
+                                <th class="p-3 font-semibold">日期</th>
+                                <th class="p-3 font-semibold">專案/社區</th>
+                                <th class="p-3 font-semibold">類型/單號</th>
+                                <th class="p-3 font-semibold">商家名稱</th>
+                                <th class="p-3 font-semibold">項目內容</th>
+                                <th class="p-3 font-semibold">分類</th>
+                                <th class="p-3 font-semibold">付款狀態</th>
+                                <th class="p-3 font-semibold text-right">金額</th>
+                                <th class="p-3 font-semibold text-center">發票圖檔</th>
+                                <th class="p-3 font-semibold text-center">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="invoice-table-body" class="divide-y divide-morandi-100 text-slate-600">
+                            <!-- 動態生成列 -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- 手機版卡片列表 -->
+                <div id="invoice-card-container" class="block md:hidden divide-y divide-morandi-100">
+                    <!-- 動態生成手機卡片 -->
+                </div>
+            </div>
+        </section>
+
+        <!-- 視角 3: 月份請款彙總表 (Monthly Report View) -->
+        <section id="view-report" class="hidden space-y-6">
+            <div class="glass-panel p-6 rounded-2xl shadow-sm border border-morandi-200 space-y-4">
+                <div class="flex justify-between items-center flex-wrap gap-4">
+                    <div>
+                        <h2 class="text-lg font-bold text-morandi-800">月份請款總表 (月份連動彙整)</h2>
+                        <p class="text-xs text-morandi-500">依月份自動歸納各類別支出金額與代墊統計</p>
+                    </div>
+                    <button onclick="window.print()" class="bg-morandi-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-morandi-700 transition">
+                        <i class="fa-solid fa-print mr-1"></i> 列印此報表
+                    </button>
+                </div>
+
+                <div id="monthly-summary-container" class="space-y-6">
+                    <!-- 動態生成各月份彙整數據 -->
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- PDF 導出專用隱藏區域 (A4 頁面格式渲染) -->
+    <div id="pdf-export-container" class="hidden print-only">
+        <div class="pdf-page space-y-4">
+            <!-- 公司抬頭 -->
+            <div class="border-b-2 border-morandi-700 pb-3 flex justify-between items-end">
+                <div>
+                    <h1 class="text-2xl font-black text-morandi-900 tracking-wider">典活動工程有限公司</h1>
+                    <p class="text-sm font-semibold text-morandi-600">請款單暨發票收據明細彙總表</p>
+                </div>
+                <div class="text-right text-xs text-morandi-500">
+                    <p>列印日期：<span id="pdf-print-date"></span></p>
+                    <p>篩選專案：<span id="pdf-project-tag">全部</span></p>
+                </div>
+            </div>
+
+            <!-- 請款統計表 -->
+            <table class="w-full text-xs border-collapse border border-slate-300">
+                <thead>
+                    <tr class="bg-slate-100 text-slate-800">
+                        <th class="border border-slate-300 p-2">日期</th>
+                        <th class="border border-slate-300 p-2">專案/社區</th>
+                        <th class="border border-slate-300 p-2">種類</th>
+                        <th class="border border-slate-300 p-2">發票/收據號碼</th>
+                        <th class="border border-slate-300 p-2">商家名稱</th>
+                        <th class="border border-slate-300 p-2">項目內容</th>
+                        <th class="border border-slate-300 p-2">費用類別</th>
+                        <th class="border border-slate-300 p-2">付款狀態</th>
+                        <th class="border border-slate-300 p-2 text-right">金額</th>
+                    </tr>
+                </thead>
+                <tbody id="pdf-table-body">
+                    <!-- 動態填充 -->
+                </tbody>
+            </table>
+
+            <!-- 各類小計與總計 Summary -->
+            <div class="grid grid-cols-2 gap-4 pt-2">
+                <div class="border border-slate-200 p-3 rounded text-xs space-y-1">
+                    <p class="font-bold text-slate-700 border-b pb-1">費用類別小計：</p>
+                    <div class="flex justify-between"><span>汽車出勤：</span><span id="pdf-sub-car">$0</span></div>
+                    <div class="flex justify-between"><span>現金付款(活動)：</span><span id="pdf-sub-event">$0</span></div>
+                    <div class="flex justify-between"><span>行政庶務-現金付款：</span><span id="pdf-sub-admin">$0</span></div>
+                    <div class="flex justify-between"><span>現金付款(維修)：</span><span id="pdf-sub-repair">$0</span></div>
+                </div>
+                <div class="border border-slate-200 p-3 rounded text-xs space-y-2 flex flex-col justify-between">
+                    <div class="flex justify-between items-center text-sm font-bold">
+                        <span>請款總金額：</span>
+                        <span id="pdf-total-amount" class="text-base text-morandi-800">$0</span>
+                    </div>
+                    <div class="pt-4 border-t flex justify-between text-slate-500">
+                        <span>審核/簽核：_________________</span>
+                        <span>申請人：_________________</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 第二頁起：發票影本黏貼頁 -->
+        <div class="pdf-page page-break space-y-4">
+            <div class="border-b border-morandi-400 pb-2">
+                <h2 class="text-lg font-bold text-morandi-800">單據影本黏貼與備查附件</h2>
+                <p class="text-xs text-morandi-500">已自動整理拍攝之發票與收據影像</p>
+            </div>
+            <div id="pdf-images-grid" class="pdf-invoice-grid">
+                <!-- 動態注入發票卡片與影像 -->
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript 核心邏輯 -->
+    <script>
+        // 本地存儲 Data
+        let invoices = JSON.parse(localStorage.getItem('Dian_Invoices_V2')) || [];
+        let currentImageData = '';
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            // 預設今日日期
+            document.getElementById('invDate').value = new Date().toISOString().split('T')[0];
+            updateProjectDropdowns();
+            renderInvoices();
+        });
+
+        // 頁面切換
+        function switchView(view) {
+            document.getElementById('view-scan').classList.add('hidden');
+            document.getElementById('view-list').classList.add('hidden');
+            document.getElementById('view-report').classList.add('hidden');
+
+            document.getElementById('btn-tab-scan').className = "px-3 py-1.5 rounded-lg text-sm hover:bg-morandi-600 font-medium transition flex items-center gap-1.5";
+            document.getElementById('btn-tab-list').className = "px-3 py-1.5 rounded-lg text-sm hover:bg-morandi-600 font-medium transition flex items-center gap-1.5";
+            document.getElementById('btn-tab-report').className = "px-3 py-1.5 rounded-lg text-sm hover:bg-morandi-600 font-medium transition flex items-center gap-1.5";
+
+            if (view === 'scan') {
+                document.getElementById('view-scan').classList.remove('hidden');
+                document.getElementById('btn-tab-scan').className = "px-3 py-1.5 rounded-lg text-sm bg-morandi-500 font-medium transition flex items-center gap-1.5";
+            } else if (view === 'list') {
+                document.getElementById('view-list').classList.remove('hidden');
+                document.getElementById('btn-tab-list').className = "px-3 py-1.5 rounded-lg text-sm bg-morandi-500 font-medium transition flex items-center gap-1.5";
+                renderInvoices();
+            } else if (view === 'report') {
+                document.getElementById('view-report').classList.remove('hidden');
+                document.getElementById('btn-tab-report').className = "px-3 py-1.5 rounded-lg text-sm bg-morandi-500 font-medium transition flex items-center gap-1.5";
+                renderMonthlyReport();
+            }
+        }
+
+        // 觸發顯示備註
+        function toggleNoteField() {
+            const status = document.getElementById('paymentStatus').value;
+            const noteContainer = document.getElementById('note-container');
+            if (status === '已付訂金') {
+                noteContainer.classList.remove('hidden');
+            } else {
+                noteContainer.classList.add('hidden');
+            }
+        }
+
+        // 詞庫快捷輸入
+        function appendWord(word) {
+            const details = document.getElementById('itemDetails');
+            if (details.value) {
+                details.value += ' ' + word;
+            } else {
+                details.value = word;
+            }
+        }
+
+        // 處理照片上傳與辨識
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                currentImageData = e.target.result;
+                document.getElementById('image-preview').src = currentImageData;
+                document.getElementById('upload-prompt').classList.add('hidden');
+                document.getElementById('preview-container').classList.remove('hidden');
+                
+                // 開始 QR & OCR 分析
+                processImageAnalysis(currentImageData);
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function clearImage() {
+            currentImageData = '';
+            document.getElementById('file-input').value = '';
+            document.getElementById('upload-prompt').classList.remove('hidden');
+            document.getElementById('preview-container').classList.add('hidden');
+        }
+
+        // 解析發票影像 (QR Code + OCR)
+        async function processImageAnalysis(dataUrl) {
+            const statusEl = document.getElementById('ocr-status');
+            statusEl.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 解析條碼/文字中...`;
+
+            const img = new Image();
+            img.src = dataUrl;
+            img.onload = async () => {
+                // 1. 嘗試讀取 QR Code (台灣電子發票)
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                canvas.width = img.width;
+                canvas.height = img.height;
+                ctx.drawImage(img, 0, 0, img.width, img.height);
+                
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const code = jsQR(imageData.data, imageData.width, imageData.height);
+
+                if (code && code.data.length >= 77) {
+                    // 電子發票左側 QR Code 格式
+                    const qrText = code.data;
+                    const invNum = qrText.substring(0, 10);
+                    const dateRaw = qrText.substring(10, 17); // 1130815 -> 民國113年8月15日
+                    const hexAmount = qrText.substring(29, 37);
+                    const amount = parseInt(hexAmount, 16);
+
+                    // 轉為標準西元年 YYYY-MM-DD
+                    const year = parseInt(dateRaw.substring(0, 3)) + 1911;
+                    const month = dateRaw.substring(3, 5);
+                    const day = dateRaw.substring(5, 7);
+
+                    document.getElementById('invNumber').value = invNum;
+                    document.getElementById('invDate').value = `${year}-${month}-${day}`;
+                    if (!isNaN(amount)) document.getElementById('amount').value = amount;
+                    document.getElementById('docType').value = '發票';
+
+                    statusEl.innerHTML = `<i class="fa-solid fa-check text-emerald-600"></i> QR Code 解析成功！`;
+                    return;
+                }
+
+                // 2. 若 QR 失敗，使用 Tesseract OCR 文字辨識
+                try {
+                    statusEl.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 辨識文字中...`;
+                    const worker = await Tesseract.createWorker('chi_tra');
+                    const ret = await worker.recognize(dataUrl);
+                    const text = ret.data.text;
+                    await worker.terminate();
+
+                    // 擷取金額邏輯
+                    const amountMatch = text.match(/(?:總計|總額|小計|金額|NT\$|\$)\s*:?\s*(\d+)/i);
+                    if (amountMatch) {
+                        document.getElementById('amount').value = amountMatch[1];
+                    }
+
+                    // 擷取發票號碼格式 (2位大寫英文 + 8位數字)
+                    const invMatch = text.match(/[A-Z]{2}-?\d{8}/);
+                    if (invMatch) {
+                        document.getElementById('invNumber').value = invMatch[0].replace('-', '');
+                    }
+
+                    statusEl.innerHTML = `<i class="fa-solid fa-check text-emerald-600"></i> OCR 文字辨識完成`;
+                } catch (err) {
+                    statusEl.innerHTML = `<span class="text-slate-400">請手動填寫資料</span>`;
+                }
+            };
+        }
+
+        // 保存單據 (新增 or 編輯)
+        function saveInvoice(e) {
+            e.preventDefault();
+
+            const invNumber = document.getElementById('invNumber').value.trim().toUpperCase();
+            const editId = document.getElementById('edit-id').value;
+
+            // 重複號碼檢核 (防呆)
+            if (!editId) {
+                const isDuplicate = invoices.some(item => item.invNumber === invNumber && invNumber !== '');
+                if (isDuplicate) {
+                    alert(`警告：發票/收據號碼 [${invNumber}] 已經存在！請勿重複請款。`);
+                    return;
+                }
+            }
+
+            const itemData = {
+                id: editId || 'INV_' + Date.now(),
+                docType: document.getElementById('docType').value,
+                projectTag: document.getElementById('projectTag').value.trim() || '未分類',
+                invDate: document.getElementById('invDate').value,
+                invNumber: invNumber,
+                sellerName: document.getElementById('sellerName').value.trim(),
+                amount: parseFloat(document.getElementById('amount').value) || 0,
+                category: document.getElementById('category').value,
+                paymentStatus: document.getElementById('paymentStatus').value,
+                paymentNote: document.getElementById('paymentNote').value.trim(),
+                itemDetails: document.getElementById('itemDetails').value.trim(),
+                image: currentImageData || ''
+            };
+
+            if (editId) {
+                const index = invoices.findIndex(i => i.id === editId);
+                if (index !== -1) invoices[index] = itemData;
+            } else {
+                invoices.unshift(itemData);
+            }
+
+            localStorage.setItem('Dian_Invoices_V2', JSON.stringify(invoices));
+            alert(editId ? '單據已成功更新！' : '單據已新增成功！');
+
+            resetForm();
+            updateProjectDropdowns();
+            switchView('list');
+        }
+
+        // 重置表單
+        function resetForm() {
+            document.getElementById('invoice-form').reset();
+            document.getElementById('edit-id').value = '';
+            document.getElementById('invDate').value = new Date().toISOString().split('T')[0];
+            document.getElementById('btn-submit').innerHTML = `<i class="fa-solid fa-plus"></i> 新增單據`;
+            document.getElementById('note-container').classList.add('hidden');
+            clearImage();
+        }
+
+        // 載入與編輯單據
+        function editInvoice(id) {
+            const item = invoices.find(i => i.id === id);
+            if (!item) return;
+
+            document.getElementById('edit-id').value = item.id;
+            document.getElementById('docType').value = item.docType || '發票';
+            document.getElementById('projectTag').value = item.projectTag || '';
+            document.getElementById('invDate').value = item.invDate;
+            document.getElementById('invNumber').value = item.invNumber;
+            document.getElementById('sellerName').value = item.sellerName;
+            document.getElementById('amount').value = item.amount;
+            document.getElementById('category').value = item.category;
+            document.getElementById('paymentStatus').value = item.paymentStatus;
+            document.getElementById('paymentNote').value = item.paymentNote || '';
+            document.getElementById('itemDetails').value = item.itemDetails;
+
+            toggleNoteField();
+
+            if (item.image) {
+                currentImageData = item.image;
+                document.getElementById('image-preview').src = item.image;
+                document.getElementById('upload-prompt').classList.add('hidden');
+                document.getElementById('preview-container').classList.remove('hidden');
+            } else {
+                clearImage();
+            }
+
+            document.getElementById('btn-submit').innerHTML = `<i class="fa-solid fa-pen-to-square"></i> 更新單據`;
+            switchView('scan');
+        }
+
+        // 刪除單據
+        function deleteInvoice(id) {
+            if (confirm('確定要刪除這筆單據嗎？此操作不可撤銷。')) {
+                invoices = invoices.filter(i => i.id !== id);
+                localStorage.setItem('Dian_Invoices_V2', JSON.stringify(invoices));
+                renderInvoices();
+                updateProjectDropdowns();
+            }
+        }
+
+        // 更新專案與月份下拉選單
+        function updateProjectDropdowns() {
+            const projectSet = new Set();
+            const monthSet = new Set();
+
+            invoices.forEach(i => {
+                if (i.projectTag) projectSet.add(i.projectTag);
+                if (i.invDate) monthSet.add(i.invDate.substring(0, 7)); // YYYY-MM
+            });
+
+            // 專案篩選器
+            const filterProject = document.getElementById('filterProject');
+            const currentProj = filterProject.value;
+            filterProject.innerHTML = `<option value="ALL">全部專案 / 社區</option>`;
+            projectSet.forEach(proj => {
+                filterProject.innerHTML += `<option value="${proj}">${proj}</option>`;
+            });
+            filterProject.value = currentProj;
+
+            // 月份篩選器
+            const filterMonth = document.getElementById('filterMonth');
+            const currentMon = filterMonth.value;
+            filterMonth.innerHTML = `<option value="ALL">所有月份</option>`;
+            Array.from(monthSet).sort().reverse().forEach(m => {
+                filterMonth.innerHTML += `<option value="${m}">${m}</option>`;
+            });
+            filterMonth.value = currentMon;
+        }
+
+        // 渲染清單 (桌面表格 + 手機卡片)
+        function renderInvoices() {
+            const projectFilter = document.getElementById('filterProject').value;
+            const monthFilter = document.getElementById('filterMonth').value;
+            const keyword = document.getElementById('searchKeyword').value.toLowerCase();
+
+            const filtered = invoices.filter(item => {
+                const matchProject = (projectFilter === 'ALL' || item.projectTag === projectFilter);
+                const matchMonth = (monthFilter === 'ALL' || item.invDate.startsWith(monthFilter));
+                const matchKw = !keyword || 
+                    item.invNumber.toLowerCase().includes(keyword) ||
+                    item.sellerName.toLowerCase().includes(keyword) ||
+                    item.itemDetails.toLowerCase().includes(keyword);
+
+                return matchProject && matchMonth && matchKw;
+            });
+
+            // 小計計算
+            let subCar = 0, subEvent = 0, subAdmin = 0, subRepair = 0;
+            filtered.forEach(i => {
+                if (i.category === '汽車出勤') subCar += i.amount;
+                else if (i.category === '現金付款(活動)') subEvent += i.amount;
+                else if (i.category === '行政庶務-現金付款') subAdmin += i.amount;
+                else if (i.category === '現金付款(維修)') subRepair += i.amount;
+            });
+
+            document.getElementById('subtotal-car').innerText = `NT$ ${subCar.toLocaleString()}`;
+            document.getElementById('subtotal-event').innerText = `NT$ ${subEvent.toLocaleString()}`;
+            document.getElementById('subtotal-admin').innerText = `NT$ ${subAdmin.toLocaleString()}`;
+            document.getElementById('subtotal-repair').innerText = `NT$ ${subRepair.toLocaleString()}`;
+            document.getElementById('grand-total').innerText = `NT$ ${(subCar + subEvent + subAdmin + subRepair).toLocaleString()}`;
+
+            // 桌面表格 HTML
+            const tbody = document.getElementById('invoice-table-body');
+            tbody.innerHTML = '';
+
+            // 手機卡片 HTML
+            const cardContainer = document.getElementById('invoice-card-container');
+            cardContainer.innerHTML = '';
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="10" class="text-center py-8 text-morandi-400">目前無符合條件的發票或收據資料</td></tr>`;
+                cardContainer.innerHTML = `<div class="text-center py-8 text-morandi-400 text-sm">目前無符合條件的單據資料</div>`;
+                return;
+            }
+
+            filtered.forEach(item => {
+                // 付款狀態 Badge 顏色
+                let statusBadge = '';
+                if (item.paymentStatus === '老闆已代墊') {
+                    statusBadge = `<span class="bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded-full font-medium">老闆代墊</span>`;
+                } else if (item.paymentStatus === '月結') {
+                    statusBadge = `<span class="bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded-full font-medium">月結</span>`;
+                } else {
+                    statusBadge = `<span class="bg-rose-100 text-rose-800 text-xs px-2 py-0.5 rounded-full font-medium" title="${item.paymentNote || ''}">已付訂金</span>`;
+                }
+
+                // 1. 渲染桌面表格
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-morandi-50/50 transition';
+                tr.innerHTML = `
+                    <td class="p-3 text-xs whitespace-nowrap">${item.invDate}</td>
+                    <td class="p-3 font-medium text-morandi-800">${item.projectTag}</td>
+                    <td class="p-3">
+                        <span class="text-xs ${item.docType==='收據'?'text-emerald-600 font-bold':'text-morandi-500'}">[${item.docType || '發票'}]</span>
+                        <span class="font-mono text-xs block">${item.invNumber}</span>
+                    </td>
+                    <td class="p-3">${item.sellerName}</td>
+                    <td class="p-3">
+                        ${item.itemDetails}
+                        ${item.paymentNote ? `<span class="block text-xs text-rose-500">註: ${item.paymentNote}</span>` : ''}
+                    </td>
+                    <td class="p-3 text-xs"><span class="bg-morandi-100 text-morandi-700 px-2 py-0.5 rounded">${item.category}</span></td>
+                    <td class="p-3">${statusBadge}</td>
+                    <td class="p-3 text-right font-bold text-morandi-900">NT$ ${item.amount.toLocaleString()}</td>
+                    <td class="p-3 text-center">
+                        ${item.image ? `<button onclick="viewImage('${item.image}')" class="text-morandi-500 hover:text-morandi-700"><i class="fa-solid fa-image text-lg"></i></button>` : '<span class="text-slate-300">-</span>'}
+                    </td>
+                    <td class="p-3 text-center space-x-2">
+                        <button onclick="editInvoice('${item.id}')" class="text-morandi-600 hover:text-morandi-900"><i class="fa-solid fa-pen"></i></button>
+                        <button onclick="deleteInvoice('${item.id}')" class="text-rose-500 hover:text-rose-700"><i class="fa-solid fa-trash"></i></button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+
+                // 2. 渲染手機卡片
+                const card = document.createElement('div');
+                card.className = 'p-4 space-y-2';
+                card.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <span class="text-xs bg-morandi-100 text-morandi-700 px-2 py-0.5 rounded mr-1">${item.projectTag}</span>
+                            <span class="text-xs font-semibold text-morandi-500">[${item.docType || '發票'}]</span>
+                            <h4 class="font-bold text-morandi-800 text-base mt-1">${item.sellerName}</h4>
+                        </div>
+                        <span class="text-base font-black text-morandi-900">NT$ ${item.amount.toLocaleString()}</span>
+                    </div>
+                    <div class="text-xs text-slate-500 space-y-1">
+                        <p><i class="fa-regular fa-file-lines mr-1"></i> 號碼：<span class="font-mono">${item.invNumber}</span> | 日期：${item.invDate}</p>
+                        <p><i class="fa-solid fa-tag mr-1"></i> 內容：${item.itemDetails}</p>
+                        <div class="flex justify-between items-center pt-1">
+                            <div>${statusBadge} <span class="ml-1 bg-slate-100 px-2 py-0.5 rounded">${item.category}</span></div>
+                            <div class="space-x-3 text-sm">
+                                ${item.image ? `<button onclick="viewImage('${item.image}')" class="text-morandi-600"><i class="fa-solid fa-image"></i> 圖檔</button>` : ''}
+                                <button onclick="editInvoice('${item.id}')" class="text-morandi-600"><i class="fa-solid fa-pen"></i> 編輯</button>
+                                <button onclick="deleteInvoice('${item.id}')" class="text-rose-500"><i class="fa-solid fa-trash"></i> 刪除</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                cardContainer.appendChild(card);
+            });
+        }
+
+        // 燈箱查看圖片
+        function viewImage(imgUrl) {
+            const w = window.open("");
+            w.document.write(`<img src="${imgUrl}" style="max-width:100%; height:auto; margin:20px auto; display:block;" />`);
+        }
+
+        // 渲染月份彙總視角
+        function renderMonthlyReport() {
+            const container = document.getElementById('monthly-summary-container');
+            container.innerHTML = '';
+
+            // 依月份分組
+            const grouped = {};
+            invoices.forEach(i => {
+                const month = i.invDate ? i.invDate.substring(0, 7) : '未定月份';
+                if (!grouped[month]) grouped[month] = [];
+                grouped[month].push(i);
+            });
+
+            const months = Object.keys(grouped).sort().reverse();
+            if (months.length === 0) {
+                container.innerHTML = `<p class="text-center text-morandi-400 py-8">目前無任何月份請款資料</p>`;
+                return;
+            }
+
+            months.forEach(month => {
+                const items = grouped[month];
+                let mCar = 0, mEvent = 0, mAdmin = 0, mRepair = 0;
+                let bossAdvance = 0; // 老闆代墊總額
+
+                items.forEach(i => {
+                    if (i.category === '汽車出勤') mCar += i.amount;
+                    else if (i.category === '現金付款(活動)') mEvent += i.amount;
+                    else if (i.category === '行政庶務-現金付款') mAdmin += i.amount;
+                    else if (i.category === '現金付款(維修)') mRepair += i.amount;
+
+                    if (i.paymentStatus === '老闆已代墊') bossAdvance += i.amount;
+                });
+
+                const mTotal = mCar + mEvent + mAdmin + mRepair;
+
+                const card = document.createElement('div');
+                card.className = "bg-white p-5 rounded-xl border border-morandi-200 shadow-sm space-y-3";
+                card.innerHTML = `
+                    <div class="flex justify-between items-center border-b border-morandi-100 pb-3">
+                        <h3 class="text-lg font-bold text-morandi-800"><i class="fa-solid fa-calendar-days text-morandi-500 mr-2"></i>${month} 月份請款彙總</h3>
+                        <span class="text-xl font-black text-morandi-900">總計：NT$ ${mTotal.toLocaleString()}</span>
+                    </div>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                        <div class="bg-morandi-50 p-2.5 rounded">汽車出勤：<span class="font-bold block text-sm text-morandi-800">NT$ ${mCar.toLocaleString()}</span></div>
+                        <div class="bg-morandi-50 p-2.5 rounded">現金付款(活動)：<span class="font-bold block text-sm text-morandi-800">NT$ ${mEvent.toLocaleString()}</span></div>
+                        <div class="bg-morandi-50 p-2.5 rounded">行政庶務：<span class="font-bold block text-sm text-morandi-800">NT$ ${mAdmin.toLocaleString()}</span></div>
+                        <div class="bg-morandi-50 p-2.5 rounded">維修支出：<span class="font-bold block text-sm text-morandi-800">NT$ ${mRepair.toLocaleString()}</span></div>
+                    </div>
+                    <div class="flex justify-between items-center pt-2 text-xs border-t border-dashed border-morandi-200">
+                        <span class="text-amber-800 font-medium"><i class="fa-solid fa-user-tie mr-1"></i> 老闆代墊小計：NT$ ${bossAdvance.toLocaleString()}</span>
+                        <span class="text-morandi-400">包含 ${items.length} 筆單據</span>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        // 匯出 Excel
+        function exportToExcel() {
+            if (invoices.length === 0) {
+                alert('目前沒有可匯出的單據資料！');
+                return;
+            }
+
+            const data = invoices.map(i => ({
+                '請款日期': i.invDate,
+                '專案/社區': i.projectTag,
+                '單據類型': i.docType || '發票',
+                '發票/收據號碼': i.invNumber,
+                '商家名稱': i.sellerName,
+                '項目內容': i.itemDetails,
+                '費用分類': i.category,
+                '付款狀態': i.paymentStatus,
+                '備註': i.paymentNote || '',
+                '金額': i.amount
+            }));
+
+            const ws = XLSX.utils.json_to_sheet(data);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "請款明細");
+            XLSX.writeFile(wb, `典活動工程_請款明細_${new Date().toISOString().split('T')[0]}.xlsx`);
+        }
+
+        // 一鍵導出 PDF (請款彙總表 + 發票影本黏貼頁)
+        function exportInvoicePdf() {
+            const projectFilter = document.getElementById('filterProject').value;
+            const monthFilter = document.getElementById('filterMonth').value;
+
+            // 篩選當前要匯出的資料
+            const pdfData = invoices.filter(item => {
+                const matchProject = (projectFilter === 'ALL' || item.projectTag === projectFilter);
+                const matchMonth = (monthFilter === 'ALL' || item.invDate.startsWith(monthFilter));
+                return matchProject && matchMonth;
+            });
+
+            if (pdfData.length === 0) {
+                alert('目前篩選條件下沒有可導出的單據！');
+                return;
+            }
+
+            // 1. 填充 PDF 抬頭資訊
+            document.getElementById('pdf-print-date').innerText = new Date().toISOString().split('T')[0];
+            document.getElementById('pdf-project-tag').innerText = projectFilter === 'ALL' ? '全部專案' : projectFilter;
+
+            // 2. 填充表格
+            const pdfTable = document.getElementById('pdf-table-body');
+            pdfTable.innerHTML = '';
+
+            let car = 0, event = 0, admin = 0, repair = 0;
+
+            pdfData.forEach(i => {
+                if (i.category === '汽車出勤') car += i.amount;
+                else if (i.category === '現金付款(活動)') event += i.amount;
+                else if (i.category === '行政庶務-現金付款') admin += i.amount;
+                else if (i.category === '現金付款(維修)') repair += i.amount;
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="border border-slate-300 p-1.5">${i.invDate}</td>
+                    <td class="border border-slate-300 p-1.5">${i.projectTag}</td>
+                    <td class="border border-slate-300 p-1.5">${i.docType||'發票'}</td>
+                    <td class="border border-slate-300 p-1.5 font-mono">${i.invNumber}</td>
+                    <td class="border border-slate-300 p-1.5">${i.sellerName}</td>
+                    <td class="border border-slate-300 p-1.5">${i.itemDetails}</td>
+                    <td class="border border-slate-300 p-1.5">${i.category}</td>
+                    <td class="border border-slate-300 p-1.5">${i.paymentStatus}</td>
+                    <td class="border border-slate-300 p-1.5 text-right font-bold">$${i.amount.toLocaleString()}</td>
+                `;
+                pdfTable.appendChild(tr);
+            });
+
+            const total = car + event + admin + repair;
+            document.getElementById('pdf-sub-car').innerText = `$ ${car.toLocaleString()}`;
+            document.getElementById('pdf-sub-event').innerText = `$ ${event.toLocaleString()}`;
+            document.getElementById('pdf-sub-admin').innerText = `$ ${admin.toLocaleString()}`;
+            document.getElementById('pdf-sub-repair').innerText = `$ ${repair.toLocaleString()}`;
+            document.getElementById('pdf-total-amount').innerText = `$ ${total.toLocaleString()}`;
+
+            // 3. 填充第二頁發票影本格
+            const pdfGrid = document.getElementById('pdf-images-grid');
+            pdfGrid.innerHTML = '';
+
+            pdfData.forEach((i, idx) => {
+                if (i.image) {
+                    const card = document.createElement('div');
+                    card.className = "pdf-invoice-card flex flex-col justify-between";
+                    card.innerHTML = `
+                        <div class="text-xs mb-2 border-b pb-1 flex justify-between">
+                            <span class="font-bold">#${idx + 1} ${i.sellerName} (${i.invNumber})</span>
+                            <span>$${i.amount.toLocaleString()}</span>
+                        </div>
+                        <div class="flex-1 flex items-center justify-center overflow-hidden min-h-[160px]">
+                            <img src="${i.image}" class="max-h-48 object-contain rounded" />
+                        </div>
+                        <div class="text-[10px] text-slate-500 mt-2 flex justify-between">
+                            <span>專案: ${i.projectTag}</span>
+                            <span>日期: ${i.invDate}</span>
+                        </div>
+                    `;
+                    pdfGrid.appendChild(card);
+                }
+            });
+
+            // 顯現並產出 PDF
+            const pdfContainer = document.getElementById('pdf-export-container');
+            pdfContainer.classList.remove('hidden');
+
+            const opt = {
+                margin:       0,
+                filename:     `典活動工程_請款單與發票影本_${new Date().toISOString().split('T')[0]}.pdf`,
+                image:        { type: 'jpeg', quality: 0.98 },
+                html2canvas:  { scale: 2 },
+                jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            };
+
+            html2pdf().set(opt).from(pdfContainer).save().then(() => {
+                pdfContainer.classList.add('hidden');
+            });
+        }
+    </script>
+</body>
+</html>
